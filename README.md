@@ -10,6 +10,13 @@ screen, or fullscreen on a TV the moment an HDMI cable is plugged in.
 *Both of those are the card's own framebuffer, read off `/dev/fb0` on a stock
 install with no config file.*
 
+![cz-tv running on a Cardputer Zero](docs/demo.gif)
+
+*The guide, type-to-search, and DW English decoding full-panel on the card's
+own screen. Captured off `/dev/fb0` while the real binary was driven through a
+uinput keyboard, so there is no desktop capture and no mock-up in it. The
+full-length version is on the [v1.2 release](https://github.com/argosautomation/cz-tv/releases/tag/v1.2).*
+
 Channels come from an ordinary **M3U playlist**, so it plays whatever you
 already have: a Jellyfin or Plex playlist, an IPTV subscription, an iptv-org
 list, or a text file of URLs you wrote yourself. It also ships with **27 free
