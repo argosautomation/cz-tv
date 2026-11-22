@@ -4,7 +4,11 @@ A live TV guide for the **M5Stack Cardputer Zero**. Browse channels on the
 card's own 320x170 screen, press ENTER, and it plays - on that same little
 screen, or fullscreen on a TV the moment an HDMI cable is plugged in.
 
-![the guide on the card](docs/guide.png)
+![the channel list on the card](docs/guide.png)
+![the groups on the card](docs/groups.png)
+
+*Both of those are the card's own framebuffer, read off `/dev/fb0` on a stock
+install with no config file.*
 
 Channels come from an ordinary **M3U playlist**, so it plays whatever you
 already have: a Jellyfin or Plex playlist, an IPTV subscription, an iptv-org
@@ -179,6 +183,12 @@ contact sheet looked at:
 
 \* Arirang blanks some programmes with a rights card of its own; the rest of
 its schedule plays.
+
+On the last sweep, 27 of 27 answered and decoded. A few frames caught a
+station's own ad break ("we'll be right back", with a countdown) rather than
+programming, which is a live channel doing a normal thing, not a dead one. The
+one picture to be suspicious of is a card that never changes, and the way to
+tell them apart is to grab a second frame a minute later.
 
 Every one is the publisher's own free ad-supported feed or a feed they
 distribute through a FAST platform. Nothing here is a pay channel someone is
