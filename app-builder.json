@@ -7,7 +7,9 @@
   "store": {
     "summary": "Live TV from any M3U playlist, on the card or on a TV.",
     "description": "A tiny, fast TV guide. Point it at any M3U playlist - your Jellyfin or Plex, your IPTV provider, an iptv-org list, or a file of URLs you wrote yourself - browse it by group or type any letter to search, press ENTER and it plays. On the Cardputer Zero's own 320x170 screen, or fullscreen on a TV the moment an HDMI cable is plugged in, and it follows the cable live. Hardware-decoded by the card's VideoCore, so the CPU barely moves, and it picks the smallest rendition for the little screen and the biggest for the TV. Ships with 27 free live channels built in - news, world, sport and classic TV, straight from the broadcasters' own CDNs - so it works the moment you install it, with no account and no config file. Channels add up rather than replace, so 'cz-tv --add <url>' is one command and never a copy of the whole list. A static Rust binary, two crates, instant start, under 600 kB resident while playing.",
-    "categories": ["Media"],
+    "categories": [
+      "Media"
+    ],
     "screenshots": [
       "docs/guide.png",
       "docs/groups.png",
@@ -29,6 +31,16 @@
       "additional_hardware": false,
       "background_service": false,
       "external_display": true
+    },
+    "locales": {
+      "zh-CN": {
+        "title": "TV",
+        "summary": "用任意 M3U 播放列表看直播，可在卡片自带屏幕上播放，也可接电视。"
+      },
+      "ja": {
+        "title": "TV",
+        "summary": "任意の M3U プレイリストでライブ TV。本体画面でも、テレビでも再生。"
+      }
     }
   }
 }
