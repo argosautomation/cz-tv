@@ -48,7 +48,20 @@ fetches the stream straight from the broadcaster's own CDN.
 ## Install
 
 ```sh
-sudo dpkg -i cz-tv_1.2-1_arm64.deb     # needs: vlc ffmpeg curl pulseaudio-utils
+sudo dpkg -i cz-tv_1.2-1_arm64.deb
+sudo apt -f install        # pulls vlc, ffmpeg, curl and pulseaudio-utils
+```
+
+`dpkg` does not fetch dependencies, so on a card that does not already have VLC
+the first line stops at *"dependency problems - leaving unconfigured"*. The
+second line is what fixes it: it installs the four packages and finishes
+configuring cz-tv. Run it even if the first line looked fine; it does nothing
+when there is nothing to fix.
+
+Or the same thing in one command, if your card is online when you install:
+
+```sh
+sudo apt install ./cz-tv_1.2-1_arm64.deb   # the ./ matters
 ```
 
 It appears in the launcher as **TV**.
