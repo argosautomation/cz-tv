@@ -1,0 +1,4 @@
+/target
+/check-out
+*.deb
+*.tar.gz

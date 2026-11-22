@@ -1,0 +1,19 @@
+[package]
+name = "cz-tv"
+version = "1.2.0"
+edition = "2021"
+
+[[bin]]
+name = "cz-tv"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+libc = "0.2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

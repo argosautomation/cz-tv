@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # A channel pull request touches one .m3u and nothing else, so this job is
+  # the one that has to be fast and has to say something useful.
+  channels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint the channel lists
+        run: tools/lint-channels.sh
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - run: cargo test --locked
+      - run: cargo fmt --check || echo "(formatting is advisory here)"
+      - name: Cross-compile the card's binary
+        run: packaging/build.sh
+      - name: Build the .deb
+        run: |
+          git clone --depth 1 https://github.com/CardputerZero/CardputerZero-AppBuilder.git /tmp/ab
+          /tmp/ab/scripts/pack-deb.sh . --output-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cz-tv-deb
+          path: dist/*.deb

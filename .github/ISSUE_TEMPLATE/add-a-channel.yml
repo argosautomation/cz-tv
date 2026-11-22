@@ -1,0 +1,46 @@
+name: Add a channel
+description: Suggest a free live channel for the lineup
+labels: [channel]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A pull request against `channels/builtin.m3u` is faster than an issue -
+        it is two lines. Use this if you would rather not open one.
+  - type: input
+    id: name
+    attributes:
+      label: Channel name
+      description: About 28 characters is what the card's guide shows.
+    validations: {required: true}
+  - type: input
+    id: url
+    attributes:
+      label: Stream URL
+      description: >
+        https, no account, no credential in the path. If it came from your IPTV
+        subscription, it carries your login - do not paste it.
+    validations: {required: true}
+  - type: input
+    id: group
+    attributes:
+      label: Guide group
+      placeholder: News / World / Sports / Entertainment
+  - type: textarea
+    id: picture
+    attributes:
+      label: What did the picture show?
+      description: >
+        Run `tools/check-channels.sh` and attach the contact sheet, or say what
+        was on screen. An HTTP 200 is not a picture: a takedown slate is clean
+        H.264 and passes every automated check there is.
+    validations: {required: true}
+  - type: checkboxes
+    id: policy
+    attributes:
+      label: Before you send it
+      options:
+        - label: It is the publisher's own free feed, not a pay channel somebody is rebroadcasting
+          required: true
+        - label: No login, no key, no DRM
+          required: true

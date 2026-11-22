@@ -1,0 +1,7 @@
+# Link the aarch64-musl target with the Rust toolchain's own bundled rust-lld,
+# so no C cross-toolchain (aarch64-linux-gnu-gcc, musl-gcc) has to be installed.
+# packaging/build.sh finds rust-lld under `rustc --print sysroot` and exports
+# CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER, which overrides this file -
+# that keeps the absolute path off disk and out of anyone else's checkout.
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes"]

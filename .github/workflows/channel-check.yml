@@ -1,0 +1,40 @@
+# Fetch every channel, decode a frame, and publish a contact sheet.
+#
+# This cannot be a pass/fail gate on a pull request and it is not run as one:
+# the picture is the verdict and a human has to look at it. GitHub's runners
+# are also in one place, so a channel that is fine where the contributor lives
+# can 403 here - a failure in this job is a question, not a rejection.
+name: channel-check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"     # Mondays, to catch streams that have rotted
+
+jobs:
+  decode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick
+      - name: Decode a frame from every channel
+        run: tools/check-channels.sh -o out -j 4
+      - name: Summary
+        run: |
+          {
+            echo '### Channel check'
+            echo
+            echo '| status | channel | stream |'
+            echo '|---|---|---|'
+            awk -F'\t' 'NR>1 {print "| "$4" | "$2" | "$5" |"}' out/report.tsv
+            echo
+            echo 'The contact sheet is in the artifacts. **Look at it** - a'
+            echo 'takedown slate is clean H.264 with an HTTP 200 and passes'
+            echo 'every check above.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contact-sheet
+          path: |
+            out/contact-sheet.jpg
+            out/report.tsv
