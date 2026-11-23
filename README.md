@@ -103,9 +103,9 @@ whole list.
 ![the Add channels screen](docs/add.png)
 
 *The real guide, drawn by the real binary: 320x170, read straight back out of
-the framebuffer. This one is from `tests/cz_tv_add_test.sh` on a build host
-rather than off the card's panel, which is why a playlist in `~/playlists` is
-showing next to the pack.*
+the framebuffer by `tests/cz_tv_ui_test.py`. Taken on a build host rather than
+off the card's panel, so both of the lists it is offering are files in
+`~/playlists`; on a card the first of them is the pack the `.deb` installed.*
 
 It lists, in order of how little work they are:
 
