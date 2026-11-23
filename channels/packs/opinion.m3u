@@ -3,7 +3,8 @@
 #
 # These are free, publisher-operated feeds and they play. They are kept out of
 # the lineup a stranger gets on first install because that lineup should not
-# pick a side on their behalf; adding it is one command:
+# pick a side on their behalf. Add it from the app - Add channels, on the
+# home screen - or from a shell:
 #
 #   cz-tv --add /usr/share/cz-tv/packs/opinion.m3u
 #

@@ -19,6 +19,7 @@
 // box) so the static musl binary never has to link a TLS stack, and playback is
 // ffmpeg or VLC. Two crates, serde_json and libc.
 
+mod add;
 mod audio;
 mod fb;
 mod font;
@@ -219,6 +220,7 @@ enum Action {
     OpenCat(String),  // category name
     OpenAll,
     Play(usize),      // index into the lineup
+    OpenAdd,          // the Add channels screen
 }
 
 #[derive(Clone)]
@@ -276,6 +278,15 @@ fn home_view(lineup: &[Chan]) -> View {
             action: Action::OpenCat(name),
         });
     }
+    // Last, under the groups, because it is the one row that is not a channel.
+    // It is in the guide at all because the card is a TV box: `cz-tv --add` is
+    // the same job but it needs a terminal, and the .deb's owner may never open
+    // one.
+    rows.push(Row {
+        label: "+  Add channels".to_string(),
+        chan: None,
+        action: Action::OpenAdd,
+    });
     View::new("TV", rows)
 }
 
@@ -801,6 +812,21 @@ fn play_inner(
     }
 }
 
+// ENTER (true) or ESC (false). Anything else is ignored rather than guessed at:
+// this is asked on the empty-guide screen, where one answer opens a writer and
+// the other quits the app.
+fn wait_enter(kbd: &mut Keyboard) -> bool {
+    loop {
+        for ev in kbd.poll(500) {
+            match ev {
+                Ev::Down(KEY_ENTER) | Ev::Down(KEY_RIGHT) => return true,
+                Ev::Down(KEY_ESC) => return false,
+                _ => {}
+            }
+        }
+    }
+}
+
 fn wait_key(kbd: &mut Keyboard) {
     loop {
         for ev in kbd.poll(500) {
@@ -889,6 +915,7 @@ fn show_sources() -> i32 {
     }
     println!("\n{} channels in the guide", lineup.len());
     println!("add more:   cz-tv --add <url-or-file>");
+    println!("            or \"Add channels\" on the app's home screen");
     println!("drop-ins:   {}/channels.d/", cfg_dir());
     let packs = pack_dir();
     if std::path::Path::new(&packs).is_dir() {
@@ -936,7 +963,7 @@ fn slug(s: &str) -> String {
 // Record a remote playlist URL in config.json's "playlists" array, leaving
 // every other setting in the file exactly as it was - this file is where
 // somebody's player command lives.
-fn subscribe(url: &str) -> Result<String, String> {
+fn subscribe(url: &str) -> Result<(String, bool), String> {
     use serde_json::Value;
     let path = format!("{}/config.json", cfg_dir());
     let mut v: Value = std::fs::read_to_string(&path)
@@ -953,7 +980,7 @@ fn subscribe(url: &str) -> Result<String, String> {
         .unwrap_or(false)
         || v.get("playlist").and_then(|x| x.as_str()) == Some(url);
     if already {
-        return Ok(format!("{path} (already subscribed)"));
+        return Ok((path, true));
     }
     let obj = v.as_object_mut().unwrap();
     let list = obj.entry("playlists").or_insert_with(|| Value::Array(Vec::new()));
@@ -968,7 +995,7 @@ fn subscribe(url: &str) -> Result<String, String> {
     let tmp = format!("{path}.tmp");
     std::fs::write(&tmp, text + "\n").map_err(|e| format!("{path}: {e}"))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("{path}: {e}"))?;
-    Ok(path)
+    Ok((path, false))
 }
 
 // Is this a LIST OF CHANNELS, or is it one stream?
@@ -997,114 +1024,179 @@ fn is_channel_list(text: &str) -> bool {
     text.lines().filter(|l| l.trim().starts_with("http")).count() > 1
 }
 
-// `cz-tv --add <url|file> [name] [group]`
+// What an add did, so that the CLI can print it and the app can draw it
+// without the two having to agree on anything by hand.
+pub struct Added {
+    pub headline: String,      // "added 12 channels" / "added Barn Cam (Cameras)"
+    pub dest: String,          // the file it was written to
+    pub names: Vec<String>,    // the first few channel names, for a receipt
+    pub more: usize,           // ... and this many after them
+    pub note: Option<String>,  // the rendition a single stream resolved to
+    pub already: bool,         // it was already there; nothing was written
+}
+
+// A playlist: more than one channel. A remote list is recorded as a
+// SUBSCRIPTION - its URL goes in config.json's "playlists" - so it tracks
+// upstream instead of freezing today's copy. A local file is copied into
+// channels.d/ so that deleting or moving the original does not empty the guide.
+fn add_playlist(src: &playlist::Src, target: &str, text: &str) -> Result<Added, String> {
+    let found = playlist::parse_m3u(text);
+    if found.is_empty() {
+        return Err(format!("{target} has no channels in it"));
+    }
+    let dir = format!("{}/channels.d", cfg_dir());
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {dir}: {e}"))?;
+    let (dest, already) = match src {
+        playlist::Src::Url(u) => subscribe(u)?,
+        _ => {
+            let stem = std::path::Path::new(target)
+                .file_stem()
+                .and_then(|x| x.to_str())
+                .unwrap_or("list");
+            let dest = format!("{dir}/{}.m3u", slug(stem));
+            std::fs::write(&dest, text).map_err(|e| format!("could not write {dest}: {e}"))?;
+            (dest, false)
+        }
+    };
+    Ok(Added {
+        headline: if already {
+            format!("{} channels, already added", found.len())
+        } else {
+            format!("added {} channels", found.len())
+        },
+        dest,
+        names: found.iter().take(4).map(|c| c.name.clone()).collect(),
+        more: found.len().saturating_sub(4),
+        note: None,
+        already,
+    })
+}
+
+// One stream. Check it actually plays before writing it down: a 200 is not a
+// picture, so resolve the rendition the player would get and decode-test the
+// URL the same way --probe does.
+fn add_stream(url: &str, name: &str, group: &str) -> Result<Added, String> {
+    let dir = format!("{}/channels.d", cfg_dir());
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {dir}: {e}"))?;
+    let picked = playlist::pick_variant(url, true);
+    if picked.is_none() && !reachable(url) {
+        return Err(format!("{}\n  did not answer - not added.", trunc(url, 60)));
+    }
+    let dest = format!("{dir}/my-channels.m3u");
+    let line = format!("#EXTINF:-1 group-title=\"{group}\",{name}\n{url}\n");
+    let (body, already) = match std::fs::read_to_string(&dest) {
+        Ok(existing) => {
+            if existing.contains(url) {
+                (existing, true)
+            } else {
+                (format!("{existing}{line}"), false)
+            }
+        }
+        Err(_) => (
+            format!("#EXTM3U\n# Added by `cz-tv --add`. Edit or delete freely.\n{line}"),
+            false,
+        ),
+    };
+    if !already {
+        std::fs::write(&dest, body).map_err(|e| format!("could not write {dest}: {e}"))?;
+    }
+    Ok(Added {
+        headline: if already {
+            format!("{name} is already there")
+        } else {
+            format!("added {name} ({group})")
+        },
+        dest,
+        names: Vec::new(),
+        more: 0,
+        note: match picked {
+            Some(u) if u != url => Some(format!("plays: {}", trunc(&u, 60))),
+            _ => None,
+        },
+        already,
+    })
+}
+
+// What `--add` was pointed at, once it has been fetched and looked at. The
+// fetch is separated from the write so the app can ask a question in between -
+// a single stream gets a name, and the only sensible moment to ask for one is
+// after we know it IS a single stream and not a 200-channel playlist.
+pub enum Target {
+    Playlist { src: playlist::Src, target: String, text: String },
+    Stream { url: String, suggested: String },
+}
+
+pub fn classify(target: &str) -> Result<Target, String> {
+    let src = as_src(target);
+    let text = playlist::read_source(&src, &cache_dir(), 0)
+        .map_err(|e| format!("could not read {}: {e}", trunc(target, 48)))?;
+    if is_channel_list(&text) {
+        return Ok(Target::Playlist { src, target: target.to_string(), text });
+    }
+    Ok(Target::Stream {
+        url: target.to_string(),
+        // The host is a poor channel name and a good default: it is what the
+        // guide would otherwise show as a blank, and it is always there.
+        suggested: target
+            .split("//")
+            .nth(1)
+            .and_then(|r| r.split('/').next())
+            .unwrap_or("Channel")
+            .to_string(),
+    })
+}
+
+pub fn add_classified(t: Target, name: Option<&str>, group: Option<&str>) -> Result<Added, String> {
+    match t {
+        Target::Playlist { src, target, text } => add_playlist(&src, &target, &text),
+        Target::Stream { url, suggested } => add_stream(
+            &url,
+            name.filter(|n| !n.trim().is_empty()).unwrap_or(&suggested),
+            group.unwrap_or("My Channels"),
+        ),
+    }
+}
+
+// The whole of `--add`: fetch the thing, work out whether it is a playlist or a
+// single stream, check it, and write it where the guide will find it.
 //
 // The barrier to this app being shareable was never the backend, it was that a
-// new channel meant hand-editing JSON over ssh. This is that job in one
-// command: it fetches the thing, works out whether it is a playlist or a single
-// stream, CHECKS IT PLAYS, and appends it to a drop-in file.
-//
-// A playlist (anything with more than one entry) is written as its own file in
-// channels.d/ so it can be removed again by deleting one file.
+// new channel meant hand-editing JSON over ssh.
+pub fn add_target(target: &str, name: Option<&str>, group: Option<&str>) -> Result<Added, String> {
+    add_classified(classify(target)?, name, group)
+}
+
+// `cz-tv --add <url|file> [name] [group]`
 fn add_source(args: &[String]) -> i32 {
     let Some(target) = args.first() else {
         println!("usage: cz-tv --add <url-or-file> [name] [group]");
         return 2;
     };
-    let src = as_src(target);
-    let text = match playlist::read_source(&src, &cache_dir(), 0) {
-        Ok(t) => t,
+    match add_target(target, args.get(1).map(|s| s.as_str()), args.get(2).map(|s| s.as_str())) {
         Err(e) => {
-            println!("could not read {target}: {e}");
-            return 1;
+            println!("{e}");
+            1
         }
-    };
-    let looks_like_playlist = is_channel_list(&text);
-    let dir = format!("{}/channels.d", cfg_dir());
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        println!("could not create {dir}: {e}");
-        return 1;
-    }
-
-    if looks_like_playlist {
-        let found = playlist::parse_m3u(&text);
-        if found.is_empty() {
-            println!("{target} has no channels in it");
-            return 1;
-        }
-        // A remote list is recorded as a SUBSCRIPTION - its URL goes in the
-        // "playlists" array in config.json - so it tracks upstream instead of
-        // freezing today's copy. A local file is copied into channels.d/ so
-        // that deleting or moving the original does not empty the guide.
-        let dest = match &src {
-            playlist::Src::Url(u) => match subscribe(u) {
-                Ok(where_) => where_,
-                Err(e) => {
-                    println!("{e}");
-                    return 1;
-                }
-            },
-            _ => {
-                let stem = std::path::Path::new(target)
-                    .file_stem()
-                    .and_then(|x| x.to_str())
-                    .unwrap_or("list");
-                let dest = format!("{dir}/{}.m3u", slug(stem));
-                if let Err(e) = std::fs::write(&dest, &text) {
-                    println!("could not write {dest}: {e}");
-                    return 1;
-                }
-                dest
+        Ok(a) => {
+            println!("{}", a.headline);
+            println!("  -> {}", a.dest);
+            for n in &a.names {
+                println!("     {n}");
             }
-        };
-        println!("added {} channels from {target}", found.len());
-        println!("  -> {dest}");
-        for ch in found.iter().take(5) {
-            println!("     {}", ch.name);
-        }
-        if found.len() > 5 {
-            println!("     ... and {} more", found.len() - 5);
-        }
-        println!("cz-tv --sources lists every source; remove it by editing that file.");
-        return 0;
-    }
-
-    // One stream. Check it actually plays before writing it down: a 200 is not
-    // a picture, so resolve the rendition the player would get and decode-test
-    // the URL the same way --probe does.
-    let url = target.to_string();
-    let name = args.get(1).cloned().unwrap_or_else(|| {
-        url.split("//").nth(1).and_then(|r| r.split('/').next()).unwrap_or("Channel").to_string()
-    });
-    let group = args.get(2).cloned().unwrap_or_else(|| "My Channels".to_string());
-    let picked = playlist::pick_variant(&url, true);
-    if picked.is_none() && !reachable(&url) {
-        println!("{url}\n  did not answer - not added.");
-        return 1;
-    }
-    let dest = format!("{dir}/my-channels.m3u");
-    let line = format!("#EXTINF:-1 group-title=\"{group}\",{name}\n{url}\n");
-    let body = match std::fs::read_to_string(&dest) {
-        Ok(existing) => {
-            if existing.contains(&url) {
-                println!("{name} is already in {dest}");
-                return 0;
+            if a.more > 0 {
+                println!("     ... and {} more", a.more);
             }
-            format!("{existing}{line}")
+            match &a.note {
+                Some(n) => println!("  {n}"),
+                None if a.names.is_empty() && !a.already => println!("  plays: single stream"),
+                None => {}
+            }
+            if !a.names.is_empty() {
+                println!("cz-tv --sources lists every source; remove it by editing that file.");
+            }
+            0
         }
-        Err(_) => format!("#EXTM3U\n# Added by `cz-tv --add`. Edit or delete freely.\n{line}"),
-    };
-    if let Err(e) = std::fs::write(&dest, body) {
-        println!("could not write {dest}: {e}");
-        return 1;
     }
-    println!("added {name} ({group})");
-    println!("  -> {dest}");
-    match picked {
-        Some(u) if u != url => println!("  plays: {}", trunc(&u, 70)),
-        _ => println!("  plays: single stream"),
-    }
-    0
 }
 
 fn reachable(url: &str) -> bool {
@@ -1136,6 +1228,10 @@ fn main() {
                  With no arguments it draws the channel guide on /dev/fb0 and reads\n\
                  the keypad. Arrows move, ENTER plays, ESC goes back, TAB moves the\n\
                  picture between this screen and a TV, any letter searches.\n\n\
+                 Channels can be added from the guide itself - \"Add channels\" is\n\
+                 the last row on the home screen, and it lists the packs installed\n\
+                 with the app and any playlist already on the card. These do the\n\
+                 same job from a shell, with control over the name and the group.\n\n\
                  It ships with a built-in lineup of free live channels and ADDS to\n\
                  it whatever else you point it at, so adding one channel is one\n\
                  command and never a copy of the whole list:\n\n\
@@ -1157,7 +1253,7 @@ fn main() {
         }
         _ => {}
     }
-    let cfg = load_config();
+    let mut cfg = load_config();
     Screen::wake();
     let mut scr = match Screen::open() {
         Ok(s) => s,
@@ -1176,8 +1272,11 @@ fn main() {
     };
 
     message(&mut scr, "TV", &["Loading channels..."], CYAN);
-    let (lineup, reports) = playlist::load_many(&cfg.sources, &cache_dir(), cfg.cache_secs);
-    if lineup.is_empty() {
+    let (mut lineup, mut reports) = playlist::load_many(&cfg.sources, &cache_dir(), cfg.cache_secs);
+    // An empty guide is exactly when a command somebody has to go and find in a
+    // README is least use, so this is a door into the Add screen rather than a
+    // dead end with instructions on it.
+    while lineup.is_empty() {
         // Name the source that failed. "no channels" with four sources
         // configured is not something anyone can act on.
         let why = reports
@@ -1190,15 +1289,22 @@ fn main() {
             &[
                 &trunc(&why, 42),
                 "",
-                "Add one:  cz-tv --add URL",
-                "or drop an M3U at",
-                "~/.config/cz-tv/channels.m3u",
-                "cz-tv --sources shows them.",
+                "ENTER to add some: a pack, a",
+                "playlist on this card, or an",
+                "address you type.",
+                "ESC quits.",
             ],
             RED,
         );
-        wait_key(&mut kbd);
-        return;
+        if !wait_enter(&mut kbd) {
+            return;
+        }
+        add::run(&mut scr, &mut kbd);
+        message(&mut scr, "TV", &["Loading channels..."], CYAN);
+        cfg = load_config();
+        let got = playlist::load_many(&cfg.sources, &cache_dir(), cfg.cache_secs);
+        lineup = got.0;
+        reports = got.1;
     }
 
     let mut stack: Vec<View> = vec![home_view(&lineup)];
@@ -1309,6 +1415,24 @@ fn main() {
                         }
                         Some(Action::OpenAll) => stack.push(all_view(&lineup)),
                         Some(Action::OpenCat(c)) => stack.push(cat_view(&lineup, &c)),
+                        Some(Action::OpenAdd) => {
+                            if add::run(&mut scr, &mut kbd) == add::Outcome::Changed {
+                                // Re-read the config, not just the playlists:
+                                // what was added is a NEW drop-in file or a new
+                                // entry in config.json, and the source list was
+                                // built when the app started.
+                                message(&mut scr, "TV", &["Loading channels..."], CYAN);
+                                cfg = load_config();
+                                let (got, _) = playlist::load_many(
+                                    &cfg.sources, &cache_dir(), cfg.cache_secs,
+                                );
+                                if !got.is_empty() {
+                                    lineup = got;
+                                }
+                                stack = vec![home_view(&lineup)];
+                                query.clear();
+                            }
+                        }
                         None => {}
                     }
                 }
@@ -1408,7 +1532,13 @@ mod tests {
         assert_eq!(labels[0], "All channels (4)");
         assert!(labels.contains(&"News  (2)"), "{labels:?}");
         assert!(labels.contains(&"Comedy  (1)"), "{labels:?}");
-        assert_eq!(labels.len(), 4, "3 groups + All");
+        assert_eq!(labels.len(), 5, "All + 3 groups + Add channels");
+        // Last, and never in among the groups: the row that is not a channel
+        // list has to be the one you arrow PAST everything to reach, not one
+        // you land on by holding DOWN a moment too long.
+        assert_eq!(labels[4], "+  Add channels");
+        assert!(matches!(v.rows[4].action, Action::OpenAdd));
+        assert!(v.rows[4].chan.is_none(), "no ON NOW line under a menu row");
     }
 
     #[test]

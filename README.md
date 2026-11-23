@@ -40,6 +40,12 @@ fetches the stream straight from the broadcaster's own CDN.
   `RESOLUTION` where the playlist gives one and `BANDWIDTH` where it does not.
 - **Sound follows the picture** - the HDMI sink for the TV, the onboard ES8389
   for the panel - and a title never starts inaudible.
+- **Adding a channel needs no terminal.** **Add channels** is the last row on
+  the home screen. It lists the packs the app ships with and any playlist
+  already on the card - a USB stick, a file you copied over - so a channel is
+  usually two keypresses, and an address can be typed in on the keypad if it is
+  not. Same code as `cz-tv --add`, so both check a stream really plays before
+  writing it down.
 - **Small.** A static `aarch64-unknown-linux-musl` binary, **~500 KB**, two
   crates (`serde_json`, `libc`). Peak RSS on the card while playing: **under
   600 kB**. The HTTP is `curl` and the decode is `ffmpeg`/VLC, so the binary
@@ -48,7 +54,7 @@ fetches the stream straight from the broadcaster's own CDN.
 ## Install
 
 ```sh
-sudo dpkg -i cz-tv_1.2-1_arm64.deb
+sudo dpkg -i cz-tv_1.3-1_arm64.deb
 sudo apt -f install        # pulls vlc, ffmpeg, curl and pulseaudio-utils
 ```
 
@@ -61,10 +67,15 @@ when there is nothing to fix.
 Or the same thing in one command, if your card is online when you install:
 
 ```sh
-sudo apt install ./cz-tv_1.2-1_arm64.deb   # the ./ matters
+sudo apt install ./cz-tv_1.3-1_arm64.deb   # the ./ matters
 ```
 
-It appears in the launcher as **TV**.
+It appears in the launcher as **TV**, and `cz-tv` is on your PATH.
+
+*(In 1.2 it was not: the binary was installed where only the launcher looks, so
+every `cz-tv` command answered "command not found" - which reads like being in
+the wrong directory rather than like a packaging mistake. 1.3 ships a symlink
+and upgrading fixes it.)*
 
 ## Keys
 
@@ -82,7 +93,44 @@ It appears in the launcher as **TV**.
 
 Channels **add up**. The built-in lineup is a starting point, not a thing you
 have to replace: anything you point the app at is merged on top of it, so
-adding one channel is one command and never a copy of the whole list.
+adding one channel is one command - or two keypresses - and never a copy of the
+whole list.
+
+### In the app
+
+**Add channels** is the last row on the home screen, under the groups.
+
+![the Add channels screen](docs/add.png)
+
+*The real guide, drawn by the real binary: 320x170, read straight back out of
+the framebuffer. This one is from `tests/cz_tv_add_test.sh` on a build host
+rather than off the card's panel, which is why a playlist in `~/playlists` is
+showing next to the pack.*
+
+It lists, in order of how little work they are:
+
+| | |
+|---|---|
+| **a playlist already on the card** | the packs the `.deb` installs, and any `.m3u` in your home directory, `~/Downloads`, or a USB stick mounted under `/media` |
+| **an address you type** | a single stream or a whole playlist, on the keypad |
+
+Opening one of those playlists lists what is inside it, so you can take **all**
+of it or **one channel** out of it - which is the point of a pack: a list of 40
+regional channels is worth having even when only one of them is wanted.
+
+Typing is last for a reason: the keypad has no shift key, so **TAB** is what
+gives you capital letters, and the field starts at `https://` so that much is
+already typed. A single stream is then offered a name, prefilled with its host,
+and ENTER keeps it.
+
+Either way the app checks the stream actually plays before it writes anything
+down, says which file it wrote, and the new channels are in the guide when the
+screen closes - no restart.
+
+### From a shell
+
+`cz-tv` is on PATH from 1.3 on, and does the same job with more control over
+the name and the group:
 
 ```sh
 cz-tv --add https://example.com/live/master.m3u8              # one stream
@@ -98,13 +146,15 @@ down. A single stream is appended to `~/.config/cz-tv/channels.d/my-channels.m3u
 a remote playlist is recorded as a *subscription*, so it keeps tracking upstream
 instead of freezing today's copy.
 
-Where the lineup comes from, each source adding to the ones above it:
+### Where the lineup comes from
+
+Each source adds to the ones above it:
 
 | | source |
 |---|---|
 | 1 | the built-in lineup (`"include_builtin": false` drops it) |
 | 2 | `~/.config/cz-tv/channels.m3u` |
-| 3 | `~/.config/cz-tv/channels.d/*.m3u`, alphabetically - where `--add` writes |
+| 3 | `~/.config/cz-tv/channels.d/*.m3u`, alphabetically - where adding writes |
 | 4 | `"playlist"` and `"playlists"` in `~/.config/cz-tv/config.json` |
 
 **A later source wins on a channel name.** That is how you replace a built-in
@@ -126,10 +176,15 @@ offline. Groups in the guide come from `group-title`, channel numbers from
 `tvg-chno` (merged lists are renumbered, and numbers somebody wrote down are
 kept).
 
+**Removing** channels is deleting the file the app names on the way in: one
+file out of `~/.config/cz-tv/channels.d/`, and `cz-tv --sources` lists every
+source it is reading.
+
 ### Packs
 
 The package installs extra lineups in `/usr/share/cz-tv/packs/` that are **not**
-in the guide until you ask for them:
+in the guide until you ask for them. They are the first thing the **Add
+channels** screen lists, or:
 
 ```sh
 cz-tv --add /usr/share/cz-tv/packs/opinion.m3u
@@ -172,7 +227,8 @@ has 352 MiB of RAM.
 
 ```sh
 rustup target add aarch64-unknown-linux-musl
-cargo test                                      # 27 tests, no hardware needed
+cargo test                                      # 32 tests, no hardware needed
+tests/cz_tv_add_test.sh                         # the guide itself, headless
 packaging/build.sh                              # the static aarch64 binary
 
 # the .deb, via the CardputerZero AppBuilder (MIT, cloned on the fly):
@@ -183,9 +239,18 @@ git clone --depth 1 https://github.com/CardputerZero/CardputerZero-AppBuilder.gi
 `.cargo/config.toml` points the musl linker at the toolchain's bundled
 `rust-lld`, so no C cross-toolchain is needed.
 
-`tests/cz_tv_hw_test.sh` is the on-card test: it drives the real app through a
-uinput keyboard and grabs `/dev/fb0` on a timeline, so the screenshots are read
-off the hardware.
+Two tests drive the real binary rather than reasoning about it:
+
+- `tests/cz_tv_add_test.sh` needs **no card and no root**. It runs the app with
+  an ordinary file standing in for the framebuffer and a FIFO standing in for
+  the keypad - both pointed at with the app's own
+  `APPLAUNCH_LINUX_FBDEV_DEVICE` and `CZ_KBD` - types its way through adding a
+  channel four different ways, and then checks the file the app wrote. It
+  leaves a montage of every screen behind. `tests/cz_tv_ui_test.py` is the
+  driver and takes a timeline of keys and `GRAB:`s of its own.
+- `tests/cz_tv_hw_test.sh` is the on-card test: it drives the real app through
+  a uinput keyboard and grabs `/dev/fb0` on a timeline, so the screenshots are
+  read off the hardware.
 
 ## The built-in channels
 

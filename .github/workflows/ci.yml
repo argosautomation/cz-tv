@@ -15,6 +15,23 @@ jobs:
       - name: Lint the channel lists
         run: tools/lint-channels.sh
 
+  # The guide itself, driven headlessly: a file for the framebuffer and a FIFO
+  # for the keypad, so the real binary's real key handling and drawing are
+  # under test on a runner with no card and no root.
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pip install pillow
+      - name: Add channels, end to end
+        run: tests/cz_tv_add_test.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: add-screens
+          path: /tmp/cz-tv-add-test/*/montage.png
+
   build:
     runs-on: ubuntu-latest
     steps:

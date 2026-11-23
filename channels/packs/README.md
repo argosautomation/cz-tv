@@ -1,8 +1,12 @@
 # Packs
 
 A pack is a playlist that is **installed but not switched on**. It ships in the
-`.deb` at `/usr/share/cz-tv/packs/`, nothing in it appears in the guide, and one
-command adds it:
+`.deb` at `/usr/share/cz-tv/packs/`, and nothing in it appears in the guide
+until somebody asks for it.
+
+Packs are the first thing the app's own **Add channels** screen lists - the
+last row on the home screen - so adding one, or one channel out of one, is a
+couple of keypresses and no terminal. The same job from a shell:
 
 ```sh
 cz-tv --add /usr/share/cz-tv/packs/opinion.m3u
