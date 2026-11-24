@@ -54,7 +54,7 @@ fetches the stream straight from the broadcaster's own CDN.
 ## Install
 
 ```sh
-sudo dpkg -i cz-tv_1.3-1_arm64.deb
+sudo dpkg -i cz-tv_1.4-1_arm64.deb
 sudo apt -f install        # pulls vlc, ffmpeg, curl and pulseaudio-utils
 ```
 
@@ -67,7 +67,7 @@ when there is nothing to fix.
 Or the same thing in one command, if your card is online when you install:
 
 ```sh
-sudo apt install ./cz-tv_1.3-1_arm64.deb   # the ./ matters
+sudo apt install ./cz-tv_1.4-1_arm64.deb   # the ./ matters
 ```
 
 It appears in the launcher as **TV**, and `cz-tv` is on your PATH.
@@ -145,6 +145,11 @@ cz-tv --probe                                                 # which ones still
 down. A single stream is appended to `~/.config/cz-tv/channels.d/my-channels.m3u`;
 a remote playlist is recorded as a *subscription*, so it keeps tracking upstream
 instead of freezing today's copy.
+
+An option it does not recognize is an **error** on stderr with exit status 2,
+and nothing but a bare `cz-tv` ever opens the screen. Before 1.4 a typo such as
+`cz-tv --sorces` fell through into the full-screen guide, which on a card
+somebody is holding means it takes over the panel and starts playing.
 
 ### Where the lineup comes from
 

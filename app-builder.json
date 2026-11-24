@@ -1,6 +1,6 @@
 {
   "package_name": "cz-tv",
-  "version": "1.3",
+  "version": "1.4",
   "app_name": "TV",
   "bin_name": "cz-tv",
   "description": "A live TV guide for any M3U playlist; plays on the card's screen or on a TV over HDMI",
