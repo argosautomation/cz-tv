@@ -15,10 +15,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=${OUT:-/tmp/cz-tv-add-test}
+if [ -n "${BIN:-}" ]; then BIN_SET=1; fi
 BIN=${BIN:-target/debug/cz-tv}
 rm -rf "$OUT"; mkdir -p "$OUT/serve" "$OUT/seed/Downloads"
 
-[ -x "$BIN" ] || cargo build
+# Always rebuild, unless the caller named a binary. An -x test passes on a
+# binary from an earlier commit, and a stale one made this suite green against
+# code that no longer exists.
+if [ -z "${BIN_SET:-}" ]; then cargo build; fi
 
 # A stream to point at, served from here, so the decode check in --add has
 # something real to answer it and the test needs nothing off the internet.
@@ -98,5 +102,49 @@ if [ -e "$OUT/cancelled/home/.config/cz-tv/channels.d" ]; then
 fi
 echo "ok: cancelled"
 
+# 5. A command line that was not understood never reaches the panel. This is
+#    the regression for the real incident: `cz-tv --bogus-flag` used to fall
+#    through to the full-screen guide, so on a card somebody was holding, a
+#    typo took over the screen and started playing a channel over what they
+#    were doing. The assertion is the framebuffer file: it must be untouched.
+mkdir -p "$OUT/args"
+FB="$OUT/args/fb.raw"
+: > "$FB"
+for BAD in --bogus-flag --Add -x junk; do
+  set +e
+  OUTPUT=$(APPLAUNCH_LINUX_FBDEV_DEVICE="$FB" CZ_KBD=/dev/null HOME="$OUT/args" \
+           "$BIN" "$BAD" 2>&1 >/dev/null)
+  RC=$?
+  set -e
+  if [ "$RC" -ne 2 ]; then
+    echo "FAIL: args - '$BAD' exited $RC, expected 2"; exit 1
+  fi
+  case "$OUTPUT" in
+    *"unknown option"*) : ;;
+    *) echo "FAIL: args - '$BAD' said '$OUTPUT', expected an unknown-option error"; exit 1 ;;
+  esac
+  if [ -s "$FB" ]; then
+    echo "FAIL: args - '$BAD' wrote $(stat -c%s "$FB") bytes to the framebuffer"; exit 1
+  fi
+done
+# And the ones that ARE commands still work, off the screen.
+APPLAUNCH_LINUX_FBDEV_DEVICE="$FB" HOME="$OUT/args" "$BIN" --version >/dev/null
+APPLAUNCH_LINUX_FBDEV_DEVICE="$FB" HOME="$OUT/args" "$BIN" --help >/dev/null
+APPLAUNCH_LINUX_FBDEV_DEVICE="$FB" HOME="$OUT/args" "$BIN" --sources >/dev/null
+if [ -s "$FB" ]; then
+  echo "FAIL: args - a shell command drew on the framebuffer"; exit 1
+fi
+# A failed --add names the whole address, not a 48-char stub: in a shell that
+# line is the only copy of what was tried.
+LONG="http://127.0.0.1:1/a/very/long/path/that/keeps/going/and/going/and/going/master.m3u8"
+set +e
+ADDOUT=$(HOME="$OUT/args" "$BIN" --add "$LONG" "Nope" Test 2>&1)
+set -e
+case "$ADDOUT" in
+  *"$LONG"*) : ;;
+  *) echo "FAIL: args - the failure line truncated the address: $ADDOUT"; exit 1 ;;
+esac
+echo "ok: args"
+
 echo
-echo "PASS - 4 scenarios. Screens: $OUT/*/montage.png"
+echo "PASS - 5 scenarios. Screens: $OUT/*/montage.png"

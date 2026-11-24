@@ -1080,7 +1080,11 @@ fn add_stream(url: &str, name: &str, group: &str) -> Result<Added, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {dir}: {e}"))?;
     let picked = playlist::pick_variant(url, true);
     if picked.is_none() && !reachable(url) {
-        return Err(format!("{}\n  did not answer - not added.", trunc(url, 60)));
+        // The whole URL, not a 60-char stub: in a shell this line is the only
+        // copy of what failed, and a truncated address cannot be retried or
+        // searched. The Add screen truncates it again for the 240px panel, so
+        // nothing downstream needs it short.
+        return Err(format!("{url}\n  did not answer - not added."));
     }
     let dest = format!("{dir}/my-channels.m3u");
     let line = format!("#EXTINF:-1 group-title=\"{group}\",{name}\n{url}\n");
@@ -1129,7 +1133,10 @@ pub enum Target {
 pub fn classify(target: &str) -> Result<Target, String> {
     let src = as_src(target);
     let text = playlist::read_source(&src, &cache_dir(), 0)
-        .map_err(|e| format!("could not read {}: {e}", trunc(target, 48)))?;
+        // Full address: same reason as add_stream's failure line - in a shell
+        // this is the only copy of what was tried, and add.rs shortens it for
+        // the panel on its own.
+        .map_err(|e| format!("could not read {target}: {e}"))?;
     if is_channel_list(&text) {
         return Ok(Target::Playlist { src, target: target.to_string(), text });
     }
@@ -1251,7 +1258,18 @@ fn main() {
             );
             return;
         }
-        _ => {}
+        // An unrecognized argument used to fall through to the full-screen app,
+        // which on a card somebody is holding means a typo silently takes over
+        // the panel and starts playing a channel over whatever they were doing.
+        // A command line that was not understood is an error, and it stays off
+        // the screen.
+        Some(other) => {
+            eprintln!("cz-tv: unknown option \"{other}\"");
+            eprintln!("cz-tv: run `cz-tv --help` for the options, or `cz-tv` with no arguments for the guide.");
+            std::process::exit(2);
+        }
+        // No arguments at all is the guide. That is the only thing that draws.
+        None => {}
     }
     let mut cfg = load_config();
     Screen::wake();
